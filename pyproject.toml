@@ -1,0 +1,38 @@
+[project]
+name = "rag-eval-harness"
+version = "0.1.0"
+description = "A skeleton RAG evaluation harness with separated ingestion, chunking, retrieval, and evaluation packages."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pdfplumber>=0.11.0",
+    "pydantic-settings>=2.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+only-include = [
+    "src/api",
+    "src/chunking",
+    "src/config.py",
+    "src/eval",
+    "src/ingestion",
+    "src/retrieval",
+]
+sources = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
