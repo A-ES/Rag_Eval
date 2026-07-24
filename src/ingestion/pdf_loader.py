@@ -7,6 +7,8 @@ from typing import Any
 
 import pdfplumber
 
+from ingestion.clean import clean_text, detect_repeated_lines
+
 
 PageRecord = dict[str, Any]
 logger = logging.getLogger(__name__)
@@ -52,17 +54,21 @@ def _load_single_pdf(pdf_path: Path) -> list[PageRecord]:
             }
             for page in pdf.pages
         ]
+        page_texts = [page_data["text"] for page_data in extracted_pages]
+        repeated_lines = detect_repeated_lines(page_texts)
+        cleaned_texts = [
+            clean_text(page_text, repeated_lines=repeated_lines)
+            for page_text in page_texts
+        ]
 
-        doc_id = _document_title(
-            pdf_path, [page_data["text"] for page_data in extracted_pages]
-        )
+        doc_id = _document_title(pdf_path, page_texts)
 
         records = [
             _page_record(
                 pdf_path=pdf_path,
                 page=page_data["page"],
                 page_number=page_number,
-                text=page_data["text"],
+                text=cleaned_texts[page_number - 1],
                 doc_id=doc_id,
             )
             for page_number, page_data in enumerate(extracted_pages, start=1)
@@ -143,7 +149,7 @@ def _ocr_page(page: Any) -> str:
 
     try:
         image = page.to_image(resolution=300).original
-        return pytesseract.image_to_string(image).strip()
+        return clean_text(pytesseract.image_to_string(image))
     except Exception as exc:
         logger.warning("OCR failed for page: %s", exc)
         return ""

@@ -80,6 +80,28 @@ def test_load_pdf_pages_classifies_text_table_ocr_and_failed_pages(
     assert "Pages failed both extraction and OCR: ['sample.pdf page 4']" in caplog.text
 
 
+def test_load_pdf_pages_cleans_repeated_headers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.touch()
+    pages = [
+        FakePage("ACME Header\nFirst page has enough content."),
+        FakePage("ACME Header\nSecond page has enough content."),
+        FakePage("ACME Header\nThird page has enough content."),
+        FakePage("ACME Header\nFourth page has enough content."),
+        FakePage("ACME Header\nFifth page has enough content."),
+    ]
+
+    monkeypatch.setattr(pdf_loader.pdfplumber, "open", lambda _: FakePdf(pages))
+
+    records = load_pdf_pages(tmp_path)
+
+    assert "ACME Header" not in records[0]["text"]
+    assert records[0]["text"] == "First page has enough content."
+
+
 @pytest.mark.skipif(
     not FIXTURE_PDF.exists(),
     reason="Add a small sample PDF at tests/fixtures/sample.pdf to run this test.",
