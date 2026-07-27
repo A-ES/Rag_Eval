@@ -9,6 +9,7 @@ dependencies = [
     "pillow>=10.0.0",
     "pytesseract>=0.3.13",
     "pydantic-settings>=2.3.0",
+    "qdrant-client>=1.10.0",
     "sentence-transformers>=3.0.0",
     "tiktoken>=0.7.0",
 ]
