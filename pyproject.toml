@@ -10,6 +10,7 @@ dependencies = [
     "pytesseract>=0.3.13",
     "pydantic-settings>=2.3.0",
     "qdrant-client>=1.10.0",
+    "rank-bm25>=0.2.2",
     "sentence-transformers>=3.0.0",
     "tiktoken>=0.7.0",
 ]
