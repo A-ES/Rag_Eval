@@ -5,6 +5,7 @@ from generation.generator import (
     ContextGenerator,
     GenerationResponse,
     GroqLLMClient,
+    UnsupportedCitation,
     generate_answer,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "ContextGenerator",
     "GenerationResponse",
     "GroqLLMClient",
+    "UnsupportedCitation",
     "generate_answer",
 ]

@@ -7,6 +7,12 @@ from typing import Any, Protocol
 
 from chunking.models import Chunk
 from config import settings
+from generation.citation_verifier import (
+    CitationSupportJudge,
+    LLMCitationSupportJudge,
+    UnsupportedCitation,
+    verify_citations,
+)
 
 
 RerankedCandidate = tuple[Chunk, float]
@@ -29,12 +35,16 @@ class GenerationResponse:
     answer: str
     citations: list[Citation]
     insufficient_context: bool
+    unsupported_citations: list[UnsupportedCitation]
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "answer": self.answer,
             "citations": [asdict(citation) for citation in self.citations],
             "insufficient_context": self.insufficient_context,
+            "unsupported_citations": [
+                asdict(citation) for citation in self.unsupported_citations
+            ],
         }
 
 
@@ -74,11 +84,13 @@ class ContextGenerator:
         self,
         *,
         llm_client: LLMClient | None = None,
+        citation_judge: CitationSupportJudge | None = None,
         max_context_chunks: int = 5,
     ) -> None:
         if max_context_chunks <= 0:
             raise ValueError("max_context_chunks must be positive")
         self.llm_client = llm_client or GroqLLMClient()
+        self.citation_judge = citation_judge or LLMCitationSupportJudge(self.llm_client)
         self.max_context_chunks = max_context_chunks
 
     def generate(
@@ -99,14 +111,27 @@ class ContextGenerator:
         answer = str(payload.get("answer", "")).strip()
         insufficient_context = _is_insufficient(answer, payload)
         citations = _citations_from_answer(answer, marker_to_chunk_id)
+        marker_to_chunk = {
+            f"[{index}]": chunk
+            for index, chunk in enumerate(context_chunks, start=1)
+        }
 
         if insufficient_context:
             citations = []
+            unsupported_citations = []
+        else:
+            unsupported_citations = verify_citations(
+                answer=answer,
+                citations=citations,
+                marker_to_chunk=marker_to_chunk,
+                judge=self.citation_judge,
+            )
 
         return GenerationResponse(
             answer=answer or "insufficient context",
             citations=citations,
             insufficient_context=insufficient_context,
+            unsupported_citations=unsupported_citations,
         )
 
 
@@ -115,10 +140,12 @@ def generate_answer(
     candidates: list[RerankedCandidate],
     *,
     llm_client: LLMClient | None = None,
+    citation_judge: CitationSupportJudge | None = None,
     max_context_chunks: int = 5,
 ) -> GenerationResponse:
     return ContextGenerator(
         llm_client=llm_client,
+        citation_judge=citation_judge,
         max_context_chunks=max_context_chunks,
     ).generate(query, candidates)
 
