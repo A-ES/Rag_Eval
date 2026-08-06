@@ -1,0 +1,103 @@
+name: RAG Eval
+
+on:
+  pull_request:
+    paths:
+      - "src/chunking/**"
+      - "src/retrieval/**"
+      - "prompts/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  GOLDEN_SET_PATH: data/golden_set.jsonl
+  CHUNK_INDEX_PATH: data/processed/chunks.jsonl
+  BASELINE_RESULTS_PATH: data/baselines/ci_eval_baseline.json
+  CURRENT_RESULTS_PATH: artifacts/ci_eval_results.json
+  DIFF_TABLE_PATH: artifacts/compare_runs.txt
+  CI_GOLDEN_LIMIT: "20"
+  METRIC_MAX_DROP: "0.03"
+
+jobs:
+  rag-eval:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run fast golden-set evaluation
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          mkdir -p artifacts
+          uv run python src/eval/run_eval.py \
+            "$GOLDEN_SET_PATH" \
+            "$CHUNK_INDEX_PATH" \
+            "$CURRENT_RESULTS_PATH" \
+            --limit "$CI_GOLDEN_LIMIT" \
+            --retrieve-k 20 \
+            --final-k 5
+
+      - name: Generate comparison table
+        run: |
+          uv run python scripts/compare_runs.py \
+            "$BASELINE_RESULTS_PATH" \
+            "$CURRENT_RESULTS_PATH" | tee "$DIFF_TABLE_PATH"
+
+      - name: Check metric regression threshold
+        run: |
+          uv run python scripts/check_metric_regression.py \
+            "$BASELINE_RESULTS_PATH" \
+            "$CURRENT_RESULTS_PATH" \
+            --metric recall_at_k \
+            --metric faithfulness \
+            --max-drop "$METRIC_MAX_DROP"
+
+      - name: Upload evaluation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-eval-results
+          path: artifacts/
+
+      - name: Post comparison as PR comment
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const tablePath = process.env.DIFF_TABLE_PATH;
+            const table = fs.existsSync(tablePath)
+              ? fs.readFileSync(tablePath, 'utf8')
+              : 'Comparison table was not generated.';
+            const body = [
+              '## RAG eval diff',
+              '',
+              `Baseline: \`${process.env.BASELINE_RESULTS_PATH}\``,
+              `Current: \`${process.env.CURRENT_RESULTS_PATH}\``,
+              `Gate: recall_at_k and faithfulness must not drop by more than ${process.env.METRIC_MAX_DROP}`,
+              '',
+              '```text',
+              table.trim(),
+              '```',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
